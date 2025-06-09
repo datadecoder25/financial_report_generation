@@ -191,7 +191,8 @@ if uploaded_file is not None:
               raise e
 
         system_prompt = '''
-          You are a business analyst and you analyze business and create summary of that business
+          You are a business analyst and you analyze business and create summary of that business.
+          Important: You must not use any special characters or unicode symbols like arrows. Use ASCII characters instead. For example, use '->' instead of '→'.
         '''
 
         user_prompt = '''
@@ -263,26 +264,6 @@ if uploaded_file is not None:
         Format tables cleanly with clear headers and aligned data, ensuring they render correctly in a PDF document.
 
         '''
-
-        # Download and register Unicode font
-        # Ensure fonts are installed
-        # get_ipython().system('apt-get update')
-        # get_ipython().system('apt-get install -y fonts-dejavu')
-
-        # Verify the font file exists after installation
-        unicode_font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-        unicode_bold_font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' # Define path for the bold font as well
-
-        if not os.path.exists(unicode_font_path):
-            print(f"Error: Regular font file not found at {unicode_font_path}. Please check the installation.")
-            # Handle the error, perhaps by exiting or using a different font
-            # For now, we'll let it proceed to see the error explicitly if it still exists
-            pass # Or exit() or raise an error
-
-        if not os.path.exists(unicode_bold_font_path):
-            print(f"Error: Bold font file not found at {unicode_bold_font_path}. Please check the installation.")
-            pass # Or exit() or raise an error
-
 
         # Helper: Render text with **bold** formatting
         def render_bold_text(pdf, text):
@@ -479,7 +460,7 @@ if uploaded_file is not None:
                 # Add content
                 add_content_to_pdf(pdf, business_summary.strip())
 
-                pdf_bytes = pdf.output(dest='S').encode('utf-8')
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
 
             st.write(business_summary)
 

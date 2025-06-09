@@ -1,3 +1,3 @@
-.cpg_venv/
+cpg_venv/
 .streamlit/secrets.toml
 cache/
