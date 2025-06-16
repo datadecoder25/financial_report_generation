@@ -4,3 +4,4 @@ numpy
 openai
 fpdf
 tabulate
+openpyxl
