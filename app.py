@@ -7,25 +7,55 @@ import re
 from fpdf import FPDF
 import os 
 import io
+import openpyxl
 
 st.title("Amazon Seller Central Profitability Report")
 
 st.write("""
 This app helps you analyze your Amazon Seller Central transaction report.
-Upload your transaction in  CSV format file to get started.
+Upload your transaction txt files to get started. You can upload multiple files at once.
 """)
 
-uploaded_file = st.file_uploader("Upload your Amazon Transaction CSV file", type="csv")
+uploaded_files = st.file_uploader("Upload your Amazon Transaction TXT files", type="txt", accept_multiple_files=True)
 
 df = None
 
-if uploaded_file is not None:
+if uploaded_files is not None and len(uploaded_files) > 0:
     try:
-        # Read the CSV file
-        df = pd.read_csv(uploaded_file)
-        st.success("File uploaded successfully!")
-        st.write("Original Data Preview:")
-        st.dataframe(df.head())
+        # Initialize an empty list to store dataframes from each text file
+        dataframes = []
+        
+        st.info(f"Processing {len(uploaded_files)} file(s)...")
+        
+        # Process each uploaded file
+        for uploaded_file in uploaded_files:
+            try:
+                # Read the text file as a CSV, assuming tab as delimiter
+                # You might need to adjust the delimiter based on your text file format
+                df_temp = pd.read_csv(uploaded_file, delimiter='\t')
+                dataframes.append(df_temp)
+            except Exception as e:
+                st.error(f"Error reading file {uploaded_file.name}: {e}")
+        
+        # Concatenate all dataframes into a single dataframe
+        if dataframes:
+            df = pd.concat(dataframes, ignore_index=True)
+            st.success(f"Successfully combined {len(dataframes)} text files!")
+            st.write("Combined Data Preview:")
+            st.dataframe(df.head())
+            
+            # Optional: Show file processing summary
+            with st.expander("File Processing Summary"):
+                st.write(f"Total files processed: {len(dataframes)}")
+                st.write(f"Total rows in combined dataset: {len(df)}")
+                for i, uploaded_file in enumerate(uploaded_files):
+                    if i < len(dataframes):
+                        st.write(f"- {uploaded_file.name}: {len(dataframes[i])} rows")
+        else:
+            st.error("No files were successfully processed.")
+            st.stop()
+
+        # Continue with the existing data processing logic
 
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
         df['quantity'] = pd.to_numeric(df['quantity-purchased'], errors='coerce')
@@ -80,40 +110,80 @@ if uploaded_file is not None:
 
         # --- 2. Ask for unit price of every SKU ---
         st.write("### Enter Unit Cost (COGS) for each SKU")
-        st.write("Please provide the cost for *one unit* of each product listed below.")
+        st.write("Please download the Excel template below, enter the cost for *one unit* of each product (numeric values only, no $ or commas), save the file, and upload it back.")
 
         # Create a dictionary to store user input unit prices
         unit_prices = {}
         skus_to_get_price = product_details['sku'].dropna().unique() # Get unique, non-null SKUs
 
-        # Use st.data_editor to allow inline editing of unit prices
-        # Create a DataFrame for editing
-        unit_price_editor_df = pd.DataFrame({
+        # Create Excel template for download
+        template_df = pd.DataFrame({
             'sku': skus_to_get_price,
-            'Unit Cost': [0.0] * len(skus_to_get_price) # Initialize with 0 or load previous if state is used
+            'Unit Cost': [0.0] * len(skus_to_get_price)
         })
-
-        edited_df = st.data_editor(unit_price_editor_df, num_rows="dynamic", key="unit_price_editor")
+        
+        # Create Excel file in memory
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            template_df.to_excel(writer, sheet_name='Unit_Costs', index=False)
+        excel_buffer.seek(0)
+        
+        # Download button for Excel template
+        st.download_button(
+            label="📥 Download Unit Cost Template (Excel)",
+            data=excel_buffer.getvalue(),
+            file_name='unit_cost_template.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+        st.write("---")
+        
+        # Upload filled Excel file
+        uploaded_unit_cost_file = st.file_uploader(
+            "📤 Upload the completed Unit Cost Excel file", 
+            type=['xlsx', 'xls'],
+            help="Upload the Excel file after filling in the Unit Cost column with numeric values only"
+        )
 
         profit = 0
 
-        # Convert edited data back to dictionary for calculations
-        if not edited_df.empty:
+        # Process uploaded Excel file
+        if uploaded_unit_cost_file is not None:
             try:
-                # Ensure 'Unit Cost' is numeric, coerce errors to NaN
-                edited_df['Unit Cost'] = pd.to_numeric(edited_df['Unit Cost'], errors='coerce')
-                # Drop rows where Unit Cost is NaN (couldn't be converted to number) or SKU is NaN
-                edited_df = edited_df.dropna(subset=['sku', 'Unit Cost'])
-                final_product_df = pd.merge(product_details, edited_df, on='sku', how='inner')
-                final_product_df['total_cost'] = final_product_df['Unit Cost']*final_product_df['quantity']
-                total_cost = final_product_df['total_cost'].sum()
-                st.write(f"Total Cost of Goods Sold (COGS): ${total_cost:,.2f}")
+                # Read the uploaded Excel file
+                edited_df = pd.read_excel(uploaded_unit_cost_file)
+                
+                # Ensure 'Unit Cost' column exists
+                if 'Unit Cost' not in edited_df.columns:
+                    st.error("The uploaded file must contain a 'Unit Cost' column. Please use the downloaded template.")
+                elif 'sku' not in edited_df.columns:
+                    st.error("The uploaded file must contain a 'sku' column. Please use the downloaded template.")
+                else:
+                    # Convert 'Unit Cost' to numeric, coerce errors to NaN
+                    edited_df['Unit Cost'] = pd.to_numeric(edited_df['Unit Cost'], errors='coerce')
+                    
+                    # Drop rows where Unit Cost is NaN (couldn't be converted to number) or SKU is NaN
+                    edited_df = edited_df.dropna(subset=['sku', 'Unit Cost'])
+                    
+                    if not edited_df.empty:
+                        final_product_df = pd.merge(product_details, edited_df, on='sku', how='inner')
+                        final_product_df['total_cost'] = final_product_df['Unit Cost'] * final_product_df['quantity']
+                        total_cost = final_product_df['total_cost'].sum()
+                        
+                        st.success("✅ Unit costs processed successfully!")
+                        st.write(f"**Total Cost of Goods Sold (COGS): ${total_cost:,.2f}**")
 
-                profit = (net_revenue - total_cost)
-                st.write(f"Estimated Profit: ${profit:,.2f}")
+                        profit = (net_revenue - total_cost)
+                        st.write(f"**Estimated Profit: ${profit:,.2f}**")
+                        
+                        # Show summary of processed unit costs
+                        with st.expander("Unit Cost Summary"):
+                            st.dataframe(final_product_df[['sku', 'quantity', 'revenue', 'Unit Cost', 'total_cost']])
+                    else:
+                        st.error("No valid unit cost data found. Please ensure Unit Cost column contains numeric values.")
+                        
             except Exception as e:
-                st.error(f"Error processing unit prices: {e}. Please ensure Unit Cost is a valid number.")
-                unit_prices = {} # Reset unit prices if there's an error
+                st.error(f"Error processing the uploaded Excel file: {e}. Please ensure you're using the correct template format.")
 
         top_products = product_details.head(5)
         top_product_skus = top_products['sku']
