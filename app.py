@@ -9,12 +9,19 @@ import os
 import io
 import openpyxl
 
-st.title("Amazon Seller Central Profitability Report")
+st.title("Payout and Margin Reconciler")
 
 st.write("""
-This app helps you analyze your Amazon Seller Central transaction report.
-Upload your transaction txt files to get started. You can upload multiple files at once.
+This tool bridges the gap between finance and marketing by reconciling the long-term Amazon 
+         All Statements Report with what actually hits your bank account. It clears up the 
+         confusion caused by conflicting reports and tools, and shows your real margin 
+         after all fees, taxes, and costs. You’ll know exactly where your money is going 
+         and which products or expenses are hurting profitability.
 """)
+
+st.title("Step 1: Download at least 6 months (or longer) of All Statements reports")
+
+st.write("From the menu, go to: Payments > Payments > All Statements > Set date range > Search > Download Flat File or Request report")
 
 uploaded_files = st.file_uploader("Upload your Amazon Transaction TXT files", type="txt", accept_multiple_files=True)
 
