@@ -19,7 +19,7 @@ This tool bridges the gap between finance and marketing by reconciling the long-
          and which products or expenses are hurting profitability.
 """)
 
-st.title("Step 1: Download at least 6 months (or longer) of All Statements reports")
+st.title("Download at least 6 months (or longer) of All Statements reports")
 
 st.write("From the menu, go to: Payments > Payments > All Statements > Set date range > Search > Download Flat File or Request report")
 
@@ -328,7 +328,10 @@ if uploaded_files is not None and len(uploaded_files) > 0:
         Introduction: Provide an item-by-item analysis for the top five products by revenue.
         Product Details: {top_products_summary_part_1}
         Cost Percentages of Revenue: {top_products_summary_part_2}
+        Summarize the table to give an insight to the user about the top 5 products and their performance.
         For all products, indicate whether it is performing well or requires adjustments to improve profitability.
+
+        
         8. Overall Insights and Actionable Recommendations
 
         Clearly identify areas where costs can be reduced to enhance overall profitability.
