@@ -15,7 +15,7 @@ st.write("""
 This tool bridges the gap between finance and marketing by reconciling the long-term Amazon 
          All Statements Report with what actually hits your bank account. It clears up the 
          confusion caused by conflicting reports and tools, and shows your real margin 
-         after all fees, taxes, and costs. You’ll know exactly where your money is going 
+         after all fees, taxes, and costs. You'll know exactly where your money is going 
          and which products or expenses are hurting profitability.
 """)
 
@@ -71,8 +71,6 @@ if uploaded_files is not None and len(uploaded_files) > 0:
         net_revenue_components = ['ItemPrice', 'ItemWithheldTax', 'Promotion']
         net_revenue_df = grouped_df[grouped_df['amount-type'].isin(net_revenue_components)]
         net_revenue = net_revenue_df['amount'].sum()
-
-        grouped_df.loc[~grouped_df['amount-type'].isin(net_revenue_components), '% of net revenue'] = round(abs(grouped_df['amount']) / net_revenue * 100, 2)
         tax_collected_by_amazon = abs(grouped_df[grouped_df['amount-type']=='ItemWithheldTax'].reset_index().iloc[0]['amount'])
 
         # Use errors='coerce' to turn unparseable dates into NaT (Not a Time)
@@ -82,17 +80,27 @@ if uploaded_files is not None and len(uploaded_files) > 0:
         lowest_start_date = df['settlement-start-date'].min()
         highest_end_date = df['settlement-end-date'].max()
 
-        # Format the dates to "Month, Year"
+        # Helper function to add ordinal suffix to day
+        def add_ordinal_suffix(day):
+            if 10 <= day % 100 <= 20:
+                suffix = 'th'
+            else:
+                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+            return f"{day}{suffix}"
+
+        # Format the dates to "1st Jan, 2029"
         # Check if dates are NaT before formatting
         if pd.isna(lowest_start_date):
             formatted_lowest_start_date = "N/A"
         else:
-            formatted_lowest_start_date = lowest_start_date.strftime('%B, %Y')
+            day_with_suffix = add_ordinal_suffix(lowest_start_date.day)
+            formatted_lowest_start_date = f"{day_with_suffix} {lowest_start_date.strftime('%b, %Y')}"
 
         if pd.isna(highest_end_date):
             formatted_highest_end_date = "N/A"
         else:
-            formatted_highest_end_date = highest_end_date.strftime('%B, %Y')
+            day_with_suffix = add_ordinal_suffix(highest_end_date.day)
+            formatted_highest_end_date = f"{day_with_suffix} {highest_end_date.strftime('%b, %Y')}"
 
         itemFees = df.groupby(['amount-description', 'amount-type'])['amount'].sum().reset_index()
         itemFees = itemFees[itemFees['amount-type']=='ItemFees'].reset_index(drop=True)
@@ -122,13 +130,15 @@ if uploaded_files is not None and len(uploaded_files) > 0:
         # Create a dictionary to store user input unit prices
         unit_prices = {}
         skus_to_get_price = product_details['sku'].dropna().unique() # Get unique, non-null SKUs
+        # want to add another row called other expenses to the excel sheet
+        skus_to_get_price = np.append(skus_to_get_price, 'Other Total Expenses')
 
         # Create Excel template for download
         template_df = pd.DataFrame({
             'sku': skus_to_get_price,
             'Unit Cost': [0.0] * len(skus_to_get_price)
         })
-        
+
         # Create Excel file in memory
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -159,7 +169,7 @@ if uploaded_files is not None and len(uploaded_files) > 0:
             try:
                 # Read the uploaded Excel file
                 edited_df = pd.read_excel(uploaded_unit_cost_file)
-                
+
                 # Ensure 'Unit Cost' column exists
                 if 'Unit Cost' not in edited_df.columns:
                     st.error("The uploaded file must contain a 'Unit Cost' column. Please use the downloaded template.")
@@ -173,10 +183,17 @@ if uploaded_files is not None and len(uploaded_files) > 0:
                     edited_df = edited_df.dropna(subset=['sku', 'Unit Cost'])
                     
                     if not edited_df.empty:
-                        final_product_df = pd.merge(product_details, edited_df, on='sku', how='inner')
+                        final_product_df = pd.merge(product_details, edited_df, on='sku', how='right')
+                        final_product_df['quantity'] = final_product_df['quantity'].fillna(1) # For 'Other Expenses'
                         final_product_df['total_cost'] = final_product_df['Unit Cost'] * final_product_df['quantity']
                         total_cost = final_product_df['total_cost'].sum()
-                        
+                        total_take_home_amount = grouped_df['amount'].sum()
+                        grouped_df.loc[len(grouped_df)] = ['Total Take Home Amount', total_take_home_amount]
+                        grouped_df.loc[len(grouped_df)] = ['COGS', total_cost]
+                        grouped_df.loc[~grouped_df['amount-type'].isin(net_revenue_components), '% of net revenue'] = round(abs(grouped_df['amount']) / net_revenue * 100, 2)
+                        grouped_df.loc[grouped_df['amount-type']=='Total Take Home Amount', '% of net revenue'] = np.nan
+
+                        cogs_to_revenue = total_cost*100/net_revenue
                         st.success("✅ Unit costs processed successfully!")
                         st.write(f"**Total Cost of Goods Sold (COGS): ${total_cost:,.2f}**")
 
@@ -280,22 +297,34 @@ if uploaded_files is not None and len(uploaded_files) > 0:
         1. Report Overview
 
         Date Range of Analysis: Clearly state the analysis period: {start_date} to {end_date}.
+
         Data Coverage: Specify that the analysis covers the approximate how many months of financial data.
+
         Total Net Revenue: Present the total net revenue for the entire period: ${net_revenue}.
         2. Revenue and Expense Summary
+        Write the following exact text before the table
+        The following table provides a comprehensive overview of revenues and various expense types. The sum of these figures (without COGs) represents the exact amount received in the bank account, ensuring accuracy, which is ${total_take_home_amount:,.2f}
 
-        Introduce the following table as a comprehensive overview of revenues and various expense types, clarifying that the sum of these figures represents the exact amount received in the bank account, ensuring accuracy.
         Present the table: {grouped_df}
         Explanation of Major Expense Types:
         Item Price: Define as gross revenue.
         Net Revenue: Explain as Item Price + Item Withheld Tax + Promotion.
         Cost of Advertising: Detail the advertising expenditure.
         Item Fees: Explain as a cumulative category of various Amazon-related fees.
+        Total Take Home Amount: Explain as the total amount received in the bank account for the period.
+
         3. Key Expense Ratios
 
         Advertising Cost to Revenue: {advertising_cost_to_revenue}%
         Promotions Cost to Revenue: {promotion_expense_to_revenue}%
         Taxes Collected by Amazon: ${tax_collected_by_amazon}
+        Shipping and Handling: {shipping_cost_to_revenue}%
+        Amazon Commission: ${commission_collected_by_amazon} ({commission_collected_by_amazon_pct}%)
+        Cost of Goods Sold (COGS): {cogs_to_revenue}%
+
+
+        ** Explain the above for this particular data and write a commentry on those**
+
         4. Detailed Item Fees Breakdown
 
         Introduce the following table as a breakdown of the 'Item Fees' category, explaining how each component contributes to the overall item fees.
@@ -319,10 +348,13 @@ if uploaded_files is not None and len(uploaded_files) > 0:
         < 10% of revenue: Maintenance
         ~15% of revenue: Moderate Growth
         ~20% of revenue: Aggressive Growth (depends on business size)
-        Promotion Expense:
+        Cost of Goods Sold Expense:
         < 30% of revenue: Acceptable
         ~25% of revenue: Healthy
         <= 20% of revenue: Very Good
+
+        ** Explain the above for this particular data and write a commentry on those**
+
         7. Item-Level Performance Analysis (Top 5 Products)
 
         Introduction: Provide an item-by-item analysis for the top five products by revenue.
@@ -332,16 +364,18 @@ if uploaded_files is not None and len(uploaded_files) > 0:
         For all products, indicate whether it is performing well or requires adjustments to improve profitability.
 
         
-        8. Overall Insights and Actionable Recommendations
+        8. Overall Insights and Next Steps
 
-        Clearly identify areas where costs can be reduced to enhance overall profitability.
-        Recommend increasing ad spend only if current expenditure is significantly below industry standards or growth objectives.
-        Maintain a primary focus on improving profitability rather than solely emphasizing growth.
-        Formatting Guidance for PDF Conversion:
+        Take a closer look at the products and expense categories mentioned above that are exceeding industry benchmarks. 
+        Some costs, like Amazons shipping and handling fees, cant be negotiated directly. But that doesnt mean youre stuck with them. 
+        For example, you might be able to reduce those costs by adjusting how your packages are prepped or shipped.
+        As a next steps just alert them, dont give exact solutions.
 
-        Use clear, consistent heading formatting (e.g., Section Title, Subsection Title).
-        Output only the report text, suitable for direct PDF conversion, without any additional conversational elements or prompt instructions.
-        Format tables cleanly with clear headers and aligned data, ensuring they render correctly in a PDF document.
+        Write the following text exact at it is:
+        If you'd like to discuss how to tackle the issues you uncovered, feel free to message me on LinkedIn, or you can grab a time on my calendar here:
+
+        https://tidycal.com/cpgedge/profitability-discussion
+
 
         '''
 
@@ -528,7 +562,8 @@ if uploaded_files is not None and len(uploaded_files) > 0:
                                   promotion_expense_to_revenue=promotion_expense_to_revenue, tax_collected_by_amazon=tax_collected_by_amazon, itemfees=itemFees.to_markdown(index=False),
                                   shipping_cost_to_revenue=shipping_cost_to_revenue,
                                   commission_collected_by_amazon=commission_collected_by_amazon, commission_collected_by_amazon_pct=commission_collected_by_amazon_pct,
-                                  top_products_summary_part_1=top_products_summary_part_1.to_markdown(index=False), top_products_summary_part_2=top_products_summary_part_2.to_markdown(index=False), profit = profit )
+                                  top_products_summary_part_1=top_products_summary_part_1.to_markdown(index=False), top_products_summary_part_2=top_products_summary_part_2.to_markdown(index=False), profit = profit, 
+                                  total_take_home_amount=total_take_home_amount, cogs_to_revenue=cogs_to_revenue )
                     )
 
                 # Create and configure PDF
